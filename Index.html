@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Lankit</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 0 20px;
+      background: #f4f6f8;
+      color: #333;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    #frontPage, #lobbyPage {
+      display: none;
+    }
+    #frontPage.active, #lobbyPage.active {
+      display: block;
+    }
+    button {
+      background: #4CAF50;
+      border: none;
+      color: white;
+      padding: 12px 20px;
+      margin: 10px 0;
+      font-size: 16px;
+      cursor: pointer;
+      border-radius: 5px;
+      width: 100%;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    input[type=text] {
+      padding: 10px;
+      font-size: 16px;
+      width: 100%;
+      box-sizing: border-box;
+      margin-bottom: 10px;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+    }
+    #messages {
+      border: 1px solid #ccc;
+      height: 300px;
+      overflow-y: auto;
+      padding: 10px;
+      background: white;
+      margin-bottom: 10px;
+      border-radius: 5px;
+    }
+    #messages div {
+      padding: 6px 10px;
+      border-bottom: 1px solid #eee;
+    }
+    #chatInput {
+      display: flex;
+      gap: 10px;
+    }
+    #chatInput input {
+      flex-grow: 1;
+      padding: 10px;
+      font-size: 16px;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+    }
+    #chatInput button {
+      flex-shrink: 0;
+      width: auto;
+      padding: 10px 20px;
+    }
+    #lobbyCodeDisplay {
+      text-align: center;
+      margin-bottom: 10px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Lankit</h1>
+
+  <div id="frontPage" class="active">
+    <button id="createLobbyBtn">Create Lobby</button>
+
+    <input type="text" id="joinLobbyInput" placeholder="Enter lobby code to join" />
+    <button id="joinLobbyBtn">Join Lobby</button>
+  </div>
+
+  <div id="lobbyPage">
+    <div id="lobbyCodeDisplay">Lobby Code: <span id="lobbyCode"></span></div>
+
+    <div id="messages"></div>
+
+    <div id="chatInput">
+      <input type="text" id="chatMessageInput" placeholder="Type your message..." />
+      <button id="sendMessageBtn">Send</button>
+    </div>
+
+    <button id="leaveLobbyBtn" style="background:#e74c3c; margin-top:15px;">Leave Lobby</button>
+  </div>
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+  <script>
+    // Your Firebase config (corrected storageBucket)
+    const firebaseConfig = {
+      apiKey: "AIzaSyAdssAURPfxQKdi7KbAlSisH0j34J8A144",
+      authDomain: "landkit-5e55b.firebaseapp.com",
+      projectId: "landkit-5e55b",
+      storageBucket: "landkit-5e55b.appspot.com",
+      messagingSenderId: "920665056429",
+      appId: "1:920665056429:web:c3c134404d735df9275224",
+      measurementId: "G-BHFXJDEBQE"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // HTML elements
+    const frontPage = document.getElementById('frontPage');
+    const lobbyPage = document.getElementById('lobbyPage');
+    const createLobbyBtn = document.getElementById('createLobbyBtn');
+    const joinLobbyBtn = document.getElementById('joinLobbyBtn');
+    const joinLobbyInput = document.getElementById('joinLobbyInput');
+    const lobbyCodeDisplay = document.getElementById('lobbyCode');
+    const messagesDiv = document.getElementById('messages');
+    const chatMessageInput = document.getElementById('chatMessageInput');
+    const sendMessageBtn = document.getElementById('sendMessageBtn');
+    const leaveLobbyBtn = document.getElementById('leaveLobbyBtn');
+
+    let currentLobbyCode = null;
+    let unsubscribeMessages = null;
+
+    // Helper: generate a random 6-letter lobby code (A-Z)
+    function generateLobbyCode() {
+      const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      let code = '';
+      for (let i = 0; i < 6; i++) {
+        code += letters.charAt(Math.floor(Math.random() * letters.length));
+      }
+      return code;
+    }
+
+    // Show lobby page, hide front page
+    function enterLobby(code) {
+      currentLobbyCode = code.toUpperCase();
+      lobbyCodeDisplay.textContent = currentLobbyCode;
+      frontPage.classList.remove('active');
+      lobbyPage.classList.add('active');
+      chatMessageInput.value = '';
+      messagesDiv.innerHTML = '';
+
+      // Listen for messages in this lobby, ordered by timestamp
+      if (unsubscribeMessages) unsubscribeMessages(); // unsubscribe previous listener
+
+      unsubscribeMessages = db.collection('lobbies')
+        .doc(currentLobbyCode)
+        .collection('messages')
+        .orderBy('timestamp')
+        .onSnapshot(snapshot => {
+          messagesDiv.innerHTML = '';
+          snapshot.forEach(doc => {
+            const msg = doc.data();
+            const div = document.createElement('div');
+            div.textContent = msg.text;
+            messagesDiv.appendChild(div);
+          });
+          messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }, error => {
+          console.error('Error loading messages:', error);
+        });
+    }
+
+    // Leave lobby, return to front page
+    function leaveLobby() {
+      currentLobbyCode = null;
+      if (unsubscribeMessages) unsubscribeMessages();
+      unsubscribeMessages = null;
+      lobbyPage.classList.remove('active');
+      frontPage.classList.add('active');
+      joinLobbyInput.value = '';
+    }
+
+    // Create lobby on button click
+    createLobbyBtn.onclick = async () => {
+      let newCode;
+      // Ensure unique lobby code (simple check)
+      while (true) {
+        newCode = generateLobbyCode();
+        const doc = await db.collection('lobbies').doc(newCode).get();
+        if (!doc.exists) break; // unique
+      }
+
+      // Create lobby doc (can add more data if needed)
+      await db.collection('lobbies').doc(newCode).set({
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      enterLobby(newCode);
+    };
+
+    // Join lobby on button click
+    joinLobbyBtn.onclick = async () => {
+      const code = joinLobbyInput.value.trim().toUpperCase();
+      if (!code) {
+        alert('Please enter a lobby code.');
+        return;
+      }
+      const doc = await db.collection('lobbies').doc(code).get();
+      if (!doc.exists) {
+        alert('Lobby not found!');
+        return;
+      }
+      enterLobby(code);
+    };
+
+    // Send message in lobby
+    sendMessageBtn.onclick = () => {
+      const text = chatMessageInput.value.trim();
+      if (!text) return;
+      if (!currentLobbyCode) {
+        alert('You are not in a lobby!');
+        return;
+      }
+
+      db.collection('lobbies')
+        .doc(currentLobbyCode)
+        .collection('messages')
+        .add({
+          text,
+          timestamp: Date.now()
+        })
+        .then(() => {
+          chatMessageInput.value = '';
+        })
+        .catch(console.error);
+    };
+
+    // Send message on Enter key
+    chatMessageInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') sendMessageBtn.click();
+    });
+
+    // Leave lobby
+    leaveLobbyBtn.onclick = () => {
+      leaveLobby();
+    };
+
+  </script>
+
+</body>
+</html>
